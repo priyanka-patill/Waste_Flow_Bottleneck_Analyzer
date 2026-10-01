@@ -72,6 +72,28 @@ export function calculateWasteFlow(
 
   const avgCollectionTripMult = collectionZoneCount > 0 ? (totalCollectionTripMultiplier / collectionZoneCount) : 1.0;
 
+  // Vehicle Fleet Transport Constraint Check
+  const totalFleetCount = Math.max(10, vehicleConfig.vehicleCount);
+  const vehicleCap = Math.max(1, vehicleConfig.vehicleCapacityTonnes);
+  const opHours = vehicleConfig.operatingHours || 14;
+
+  // Max daily trips per truck based on shift operating hours (avg roundtrip = 3.5h)
+  const tripsPerTruckPerDay = Math.max(1, Math.floor(opHours / 3.0));
+  const maxFleetTransportCapacityTonnes = totalFleetCount * vehicleCap * tripsPerTruckPerDay;
+
+  // Constrain collection outflow by active fleet transport capacity
+  const transportConstraintRatio = Math.min(1.0, maxFleetTransportCapacityTonnes / Math.max(1, totalCollected));
+  const transportBacklogTonnes = Math.max(0, totalCollected - maxFleetTransportCapacityTonnes);
+
+  // Apply transport constraint ratio to collection node outflows
+  if (transportConstraintRatio < 1.0) {
+    nodes.filter(n => n.type === 'collection').forEach(n => {
+      const metrics = nodeMetrics[n.id];
+      metrics.outflowTonnes = Math.round(n.currentTonnes * transportConstraintRatio);
+      metrics.queueTonnes = Math.round(n.currentTonnes * (1 - transportConstraintRatio));
+    });
+  }
+
   // Topological / Stage-by-Stage Flow Propagation
   // Order: collection -> transfer -> sorting -> processing -> landfill
   const stages: ('collection' | 'transfer' | 'sorting' | 'processing' | 'landfill')[] = [
@@ -84,10 +106,10 @@ export function calculateWasteFlow(
     stageNodes.forEach(node => {
       const metrics = nodeMetrics[node.id];
       
-      // Calculate effective capacity based on operating hours and processing rate if present
-      const effectiveCap = node.processingRateTonnesPerHour 
-        ? Math.max(10, node.processingRateTonnesPerHour * (node.operatingHours || 16))
-        : node.capacityTonnes;
+      // Calculate effective capacity based on base capacityTonnes (which includes sortingCapDelta) and operating hours ratio
+      const baseCap = node.capacityTonnes;
+      const hoursRatio = (node.operatingHours || 16) / 16;
+      const effectiveCap = Math.max(10, Math.round(baseCap * hoursRatio));
 
       metrics.effectiveCapacityTonnes = effectiveCap;
 
@@ -159,9 +181,13 @@ export function calculateWasteFlow(
     const outflow = nodeMetrics[n.id].outflowTonnes;
     totalProcessed += outflow;
     
-    // Custom recovery percentage per node (or default stage rates)
-    const nodeRecoveryPct = n.recoveryPct ?? (n.type === 'processing' ? 75 : 65);
-    totalRecovered += Math.round(outflow * (nodeRecoveryPct / 100));
+    // Custom recovery percentage per node (clamped between 0 and 100%)
+    const rawRecoveryPct = n.recoveryPct ?? (n.type === 'processing' ? 75 : 65);
+    const nodeRecoveryPct = Math.min(100, Math.max(0, rawRecoveryPct));
+    
+    // Recovered waste cannot exceed outflow
+    const nodeRecovered = Math.min(outflow, Math.round(outflow * (nodeRecoveryPct / 100)));
+    totalRecovered += nodeRecovered;
   });
 
   let totalLandfill = 0;
@@ -169,20 +195,19 @@ export function calculateWasteFlow(
     totalLandfill += nodeMetrics[n.id].inflowTonnes;
   });
 
-  // If no landfill node connected, calculate unrecovered residual as landfill waste
-  if (totalLandfill === 0) {
+  // If no landfill node connected or unhandled overflow, calculate unrecovered residual as landfill waste
+  if (totalLandfill === 0 || totalLandfill < (totalCollected - totalRecovered)) {
     totalLandfill = Math.max(0, totalCollected - totalRecovered);
   }
 
-  const recoveryRatePct = Number(((totalRecovered / Math.max(1, totalCollected)) * 100).toFixed(1));
-  const landfillDependencyPct = Number(((totalLandfill / Math.max(1, totalCollected)) * 100).toFixed(1));
+  // Recovery Rate % (clamped strictly 0 <= rate <= 100)
+  const rawRecoveryRatePct = Number(((totalRecovered / Math.max(1, totalCollected)) * 100).toFixed(1));
+  const recoveryRatePct = Math.min(100, Math.max(0, rawRecoveryRatePct));
+  const landfillDependencyPct = Math.min(100, Math.max(0, Number(((totalLandfill / Math.max(1, totalCollected)) * 100).toFixed(1))));
 
-  // Vehicle Logistics Calculation (REAL SENSITIVITY TO VEHICLE CAPACITY & COLLECTION FREQUENCY)
-  const vehicleCap = Math.max(1, vehicleConfig.vehicleCapacityTonnes);
-  
-  // Base trips required based on total collected waste and vehicle capacity
-  const baseTripsRequired = Math.ceil(totalCollected / vehicleCap);
-  // Apply collection frequency trip multiplier (e.g. twice daily = 2x trips, every 2 days = 0.5x trips)
+  // Vehicle Logistics Calculation
+  const actualTransportedTonnes = Math.min(totalCollected, maxFleetTransportCapacityTonnes);
+  const baseTripsRequired = Math.ceil(actualTransportedTonnes / vehicleCap);
   const totalTrips = Math.ceil(baseTripsRequired * avgCollectionTripMult);
   
   // Total transport distance
@@ -193,8 +218,10 @@ export function calculateWasteFlow(
     totalDistanceKm += edgeTrips * (e.distanceKm || 15);
   });
 
+  // Fuel & Emissions: fleet strain adds fuel multiplier if fleet capacity is tight
+  const fleetStrainMultiplier = transportConstraintRatio < 1.0 ? (1 + (1 - transportConstraintRatio) * 0.4) : 1.0;
   const fuelEfficiency = Math.max(0.5, vehicleConfig.fuelEfficiencyKmPerLiter || 3.2);
-  const totalFuelUsedLiters = Math.round(totalDistanceKm / fuelEfficiency);
+  const totalFuelUsedLiters = Math.round((totalDistanceKm / fuelEfficiency) * fleetStrainMultiplier);
   
   // CO2e Calculations:
   // 1. Vehicle transport emissions (Fuel * factor)
