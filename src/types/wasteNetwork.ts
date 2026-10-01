@@ -3,11 +3,15 @@ import type { WeatherData, WeatherImpactMultipliers, AirQualityContext, TrafficS
 export type NodeType = 'collection' | 'transfer' | 'sorting' | 'processing' | 'landfill';
 export type NodeStatus = 'healthy' | 'warning' | 'critical';
 
+
+
+export type CollectionFrequency = 'once_daily' | 'twice_daily' | 'every_2_days' | 'three_times_week';
+
 export interface NetworkNode {
   id: string;
   name: string;
   type: NodeType;
-  capacityTonnes: number; // Tonnes per day
+  capacityTonnes: number; // Tonnes per day (for collection: daily generation; for transfer/sorting/processing: daily throughput cap)
   currentTonnes: number;
   utilizationPct: number;
   status: NodeStatus;
@@ -20,6 +24,16 @@ export interface NetworkNode {
   description: string;
   costPerTon: number;
   co2FactorTonPerTon: number;
+
+  // Requirement 1 Specific Properties
+  collectionFrequency?: CollectionFrequency; // PART C
+  vehiclesAssigned?: number; // PART A
+  vehicleCapacityAssignedTonnes?: number; // PART A
+  recoveryPct?: number; // PART F (for processing/recycling facilities, 0-100)
+  processingTimeMins?: number; // PART E & F (base handling/processing time)
+  totalLandfillCapacityTonnes?: number; // PART G (Total lifetime volume)
+  currentFilledVolumeTonnes?: number; // PART G (Current filled volume)
+  timeWindow?: string; // PART A (Operating hours/time window)
 }
 
 export interface NetworkEdge {
@@ -43,6 +57,7 @@ export interface VehicleConfig {
   fuelEfficiencyKmPerLiter: number;
   operatingHours: number;
   co2EmissionFactorKgPerLiter: number;
+  avgSpeedKmPerHour?: number; // PART B
 }
 
 export interface NetworkLevers {

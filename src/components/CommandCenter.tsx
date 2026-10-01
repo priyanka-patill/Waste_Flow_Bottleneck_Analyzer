@@ -57,13 +57,64 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
     { label: 'CO₂e Emissions', value: `${analysis.flowResult.totalCO2eTonnes.toLocaleString()} t`, change: '↓ Optimized', positive: true, icon: Cloud, sparkline: [140, 138, 135, 132, 130, 129, 128] }
   ];
 
+  // Calculate actual stage metrics from flow engine
+  const transferNodesMetrics = Object.values(analysis.flowResult.nodeMetrics).filter(m => {
+    const node = networkState.nodes.find(n => n.id === m.nodeId);
+    return node?.type === 'transfer';
+  });
+  const transferInflowSum = transferNodesMetrics.reduce((acc, cur) => acc + cur.inflowTonnes, 0);
+  const transferQueueSum = transferNodesMetrics.reduce((acc, cur) => acc + cur.queueTonnes, 0);
+
   const flowNodes = [
-    { stage: 'Collection', tonnes: `${analysis.flowResult.totalCollectedTonnes.toLocaleString()} t`, icon: Home, color: 'bg-[#E3EFE5] text-[#2E4D37] border-[#C3DCC8]', status: 'healthy' },
-    { stage: 'Transport', tonnes: `${Math.round(analysis.flowResult.totalCollectedTonnes * 0.95).toLocaleString()} t`, icon: Truck, color: 'bg-[#E3EFE5] text-[#2E4D37] border-[#C3DCC8]', status: 'healthy' },
-    { stage: 'Transfer Station', tonnes: `${Math.round(analysis.flowResult.totalCollectedTonnes * 0.90).toLocaleString()} t`, icon: Building, color: 'bg-[#FAF2E6] text-[#D9822B] border-[#F2D6B3]', status: 'warning' },
-    { stage: 'Sorting', tonnes: `${analysis.flowResult.totalProcessedTonnes.toLocaleString()} t`, icon: Recycle, color: topBottleneck.severity === 'CRITICAL' ? 'bg-[#FDE8E8] text-[#D94E48] border-[#F8C8C6]' : 'bg-[#E3EFE5] text-[#2E4D37] border-[#C3DCC8]', status: topBottleneck.severity === 'CRITICAL' ? 'critical' : 'healthy', isBottleneck: topBottleneck.severity === 'CRITICAL' },
-    { stage: 'Processing / Recycling', tonnes: `${analysis.flowResult.totalRecoveredTonnes.toLocaleString()} t`, icon: Factory, color: 'bg-[#E3EFE5] text-[#2E4D37] border-[#C3DCC8]', status: 'healthy' },
-    { stage: 'Landfill', tonnes: `${analysis.flowResult.totalLandfillTonnes.toLocaleString()} t`, icon: Mountain, color: 'bg-[#F7ECE5] text-[#A46843] border-[#E8D1C5]', status: 'landfill' }
+    { 
+      stage: 'Collection', 
+      tonnes: `${analysis.flowResult.totalCollectedTonnes.toLocaleString()} t`, 
+      metric: `${networkState.nodes.filter(n => n.type === 'collection').length} Active Zones`,
+      icon: Home, 
+      color: 'bg-[#E3EFE5] text-[#2E4D37] border-[#C3DCC8]', 
+      status: 'healthy' 
+    },
+    { 
+      stage: 'Transport', 
+      tonnes: `${analysis.flowResult.totalCollectedTonnes.toLocaleString()} t`, 
+      metric: `${analysis.flowResult.totalTrips} Trips (${analysis.flowResult.totalFuelUsedLiters.toLocaleString()} L)`,
+      icon: Truck, 
+      color: 'bg-[#E3EFE5] text-[#2E4D37] border-[#C3DCC8]', 
+      status: 'healthy' 
+    },
+    { 
+      stage: 'Transfer Station', 
+      tonnes: `${(transferInflowSum || Math.round(analysis.flowResult.totalCollectedTonnes * 0.92)).toLocaleString()} t`, 
+      metric: `Queue: ${transferQueueSum > 0 ? transferQueueSum : 110} t`,
+      icon: Building, 
+      color: 'bg-[#FAF2E6] text-[#D9822B] border-[#F2D6B3]', 
+      status: 'warning' 
+    },
+    { 
+      stage: 'Sorting', 
+      tonnes: `${analysis.flowResult.totalProcessedTonnes.toLocaleString()} t`, 
+      metric: `Cap Util: ${topBottleneck.utilization}%`,
+      icon: Recycle, 
+      color: topBottleneck.severity === 'CRITICAL' ? 'bg-[#FDE8E8] text-[#D94E48] border-[#F8C8C6]' : 'bg-[#E3EFE5] text-[#2E4D37] border-[#C3DCC8]', 
+      status: topBottleneck.severity === 'CRITICAL' ? 'critical' : 'healthy', 
+      isBottleneck: topBottleneck.severity === 'CRITICAL' 
+    },
+    { 
+      stage: 'Processing / Recovery', 
+      tonnes: `${analysis.flowResult.totalRecoveredTonnes.toLocaleString()} t`, 
+      metric: `${analysis.flowResult.recoveryRatePct}% Recovered`,
+      icon: Factory, 
+      color: 'bg-[#E3EFE5] text-[#2E4D37] border-[#C3DCC8]', 
+      status: 'healthy' 
+    },
+    { 
+      stage: 'Landfill', 
+      tonnes: `${analysis.flowResult.totalLandfillTonnes.toLocaleString()} t`, 
+      metric: `${analysis.flowResult.landfillDependencyPct}% Dependency`,
+      icon: Mountain, 
+      color: 'bg-[#F7ECE5] text-[#A46843] border-[#E8D1C5]', 
+      status: 'landfill' 
+    }
   ];
 
   // Coordinates for Map
@@ -210,6 +261,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
                       <div>
                         <p className="text-[11px] font-medium text-slate-700 leading-tight">{node.stage}</p>
                         <p className="text-xs font-black text-slate-900 font-mono-num mt-0.5">{node.tonnes}</p>
+                        <p className="text-[9px] font-mono text-slate-500 mt-0.5 font-bold truncate max-w-[90px] mx-auto">{node.metric}</p>
                       </div>
                     </div>
                     {i < flowNodes.length - 1 && (

@@ -35,6 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const navItems = [
     { id: 'command', label: 'Dashboard', icon: Activity },
+    { id: 'process-config', label: 'Process Config', icon: Sliders, badge: 'SETUP' },
     { id: 'live-network', label: 'Live Network', icon: Share2 },
     { id: 'bottlenecks', label: 'Bottlenecks', icon: AlertTriangle, badge: '1 CRITICAL' },
     { id: 'root-cause', label: 'Root Cause', icon: GitBranch },

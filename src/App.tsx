@@ -18,6 +18,7 @@ import { AICopilotDrawer } from './components/AICopilotDrawer';
 import { AutomaticRecoveryModal } from './components/AutomaticRecoveryModal';
 import { HackathonDemoOverlay } from './components/HackathonDemoOverlay';
 import { FlowyNarrator } from './components/FlowyNarrator';
+import { ProcessConfigurationPage } from './components/ProcessConfigurationPage';
 import { INITIAL_NODES, type WasteNode } from './data/wasteData';
 
 export function App() {
@@ -83,6 +84,10 @@ export function App() {
                 onSimulateRecommendation={() => setActiveTab('what-if')}
                 onOpenRecovery={() => setRecoveryModalOpen(true)}
               />
+            )}
+
+            {activeTab === 'process-config' && (
+              <ProcessConfigurationPage />
             )}
 
             {(activeTab === 'digital-twin' || activeTab === 'live-network') && (

@@ -14,6 +14,13 @@ export interface WasteNode {
   lng: number;
   zone?: string;
   description: string;
+  collectionFrequency?: 'once_daily' | 'twice_daily' | 'every_2_days' | 'three_times_week';
+  vehiclesAssigned?: number;
+  vehicleCapacityAssignedTonnes?: number;
+  recoveryPct?: number;
+  totalLandfillCapacityTonnes?: number;
+  currentFilledVolumeTonnes?: number;
+  timeWindow?: string;
 }
 
 export interface WasteEdge {
@@ -63,31 +70,31 @@ export interface ScenarioPreset {
 
 export const INITIAL_NODES: WasteNode[] = [
   // Collection Zones
-  { id: 'zone-colaba', name: 'Zone A — Colaba & Fort', type: 'collection', capacityTonnes: 800, currentTonnes: 680, utilizationPct: 85, status: 'healthy', lat: 18.9067, lng: 72.8147, description: 'Commercial & High-density municipal sector' },
-  { id: 'zone-bandra', name: 'Zone B — Bandra & Khar', type: 'collection', capacityTonnes: 950, currentTonnes: 840, utilizationPct: 88, status: 'healthy', lat: 19.0596, lng: 72.8295, description: 'Mixed commercial & residential sector' },
-  { id: 'zone-andheri', name: 'Zone C — Andheri & Juhu', type: 'collection', capacityTonnes: 1200, currentTonnes: 1120, utilizationPct: 93, status: 'warning', lat: 19.1136, lng: 72.8697, description: 'High volume residential & IT corridor' },
-  { id: 'zone-thane', name: 'Zone D — Thane & Mulund', type: 'collection', capacityTonnes: 1100, currentTonnes: 1050, utilizationPct: 95, status: 'warning', lat: 19.1726, lng: 72.9426, description: 'Dense northern residential belt' },
-  { id: 'zone-navi', name: 'Zone E — Navi Mumbai', type: 'collection', capacityTonnes: 1200, currentTonnes: 1130, utilizationPct: 94, status: 'healthy', lat: 19.0330, lng: 73.0297, description: 'Planned industrial & civic node' },
+  { id: 'zone-colaba', name: 'Zone A — Colaba & Fort', type: 'collection', capacityTonnes: 800, currentTonnes: 680, utilizationPct: 85, status: 'healthy', lat: 18.9067, lng: 72.8147, description: 'Commercial & High-density municipal sector', collectionFrequency: 'once_daily', vehiclesAssigned: 35, vehicleCapacityAssignedTonnes: 12, timeWindow: '06:00 - 18:00' },
+  { id: 'zone-bandra', name: 'Zone B — Bandra & Khar', type: 'collection', capacityTonnes: 950, currentTonnes: 840, utilizationPct: 88, status: 'healthy', lat: 19.0596, lng: 72.8295, description: 'Mixed commercial & residential sector', collectionFrequency: 'once_daily', vehiclesAssigned: 40, vehicleCapacityAssignedTonnes: 12, timeWindow: '06:00 - 18:00' },
+  { id: 'zone-andheri', name: 'Zone C — Andheri & Juhu', type: 'collection', capacityTonnes: 1200, currentTonnes: 1120, utilizationPct: 93, status: 'warning', lat: 19.1136, lng: 72.8697, description: 'High volume residential & IT corridor', collectionFrequency: 'once_daily', vehiclesAssigned: 50, vehicleCapacityAssignedTonnes: 12, timeWindow: '06:00 - 20:00' },
+  { id: 'zone-thane', name: 'Zone D — Thane & Mulund', type: 'collection', capacityTonnes: 1100, currentTonnes: 1050, utilizationPct: 95, status: 'warning', lat: 19.1726, lng: 72.9426, description: 'Dense northern residential belt', collectionFrequency: 'once_daily', vehiclesAssigned: 45, vehicleCapacityAssignedTonnes: 12, timeWindow: '06:00 - 18:00' },
+  { id: 'zone-navi', name: 'Zone E — Navi Mumbai', type: 'collection', capacityTonnes: 1200, currentTonnes: 1130, utilizationPct: 94, status: 'healthy', lat: 19.0330, lng: 73.0297, description: 'Planned industrial & civic node', collectionFrequency: 'once_daily', vehiclesAssigned: 48, vehicleCapacityAssignedTonnes: 12, timeWindow: '06:00 - 18:00' },
 
   // Transfer Stations
-  { id: 'ts-dharavi', name: 'Transfer Station 1 — Dharavi', type: 'transfer', capacityTonnes: 1400, currentTonnes: 1150, utilizationPct: 82, status: 'healthy', lat: 19.0400, lng: 72.8500, description: 'Central hub for South & Central Mumbai' },
-  { id: 'ts-kurla', name: 'Transfer Station 2 — Kurla', type: 'transfer', capacityTonnes: 1600, currentTonnes: 1392, utilizationPct: 87, status: 'warning', queueTonnes: 110, lat: 19.0700, lng: 72.8800, description: 'Eastern highway transit node — Heavy influx' },
-  { id: 'ts-goregaon', name: 'Transfer Station 3 — Goregaon', type: 'transfer', capacityTonnes: 1200, currentTonnes: 810, utilizationPct: 68, status: 'healthy', lat: 19.1500, lng: 72.8400, description: 'Western suburb compression station' },
+  { id: 'ts-dharavi', name: 'Transfer Station 1 — Dharavi', type: 'transfer', capacityTonnes: 1400, currentTonnes: 1150, utilizationPct: 82, status: 'healthy', lat: 19.0400, lng: 72.8500, description: 'Central hub for South & Central Mumbai', processingRate: '100 t/hr' },
+  { id: 'ts-kurla', name: 'Transfer Station 2 — Kurla', type: 'transfer', capacityTonnes: 1600, currentTonnes: 1392, utilizationPct: 87, status: 'warning', queueTonnes: 110, lat: 19.0700, lng: 72.8800, description: 'Eastern highway transit node — Heavy influx', processingRate: '110 t/hr' },
+  { id: 'ts-goregaon', name: 'Transfer Station 3 — Goregaon', type: 'transfer', capacityTonnes: 1200, currentTonnes: 810, utilizationPct: 68, status: 'healthy', lat: 19.1500, lng: 72.8400, description: 'Western suburb compression station', processingRate: '90 t/hr' },
 
   // Sorting Facilities
-  { id: 'sort-mahim', name: 'Sorting Facility A — Mahim', type: 'sorting', capacityTonnes: 120, currentTonnes: 106, utilizationPct: 88, status: 'healthy', processingRate: '120 t/hr', lat: 19.0350, lng: 72.8400, description: 'Semi-automated optical sorting facility' },
-  { id: 'sort-kanjur', name: 'Sorting Facility B — Kanjurmarg', type: 'sorting', capacityTonnes: 160, currentTonnes: 151, utilizationPct: 94, status: 'critical', queueTonnes: 182, processingRate: '160 t/hr', overflowEstHours: '5h 42m', co2ImpactTons: 42, lat: 19.1300, lng: 72.9300, description: 'High-throughput MRF — Bottleneck focal point' },
-  { id: 'sort-taloja', name: 'Sorting Facility C — Taloja', type: 'sorting', capacityTonnes: 220, currentTonnes: 140, utilizationPct: 64, status: 'healthy', processingRate: '220 t/hr', lat: 19.0600, lng: 73.1000, description: 'State-of-the-art regional processing plant with 22% spare capacity' },
-  { id: 'sort-bhiwandi', name: 'Sorting Facility D — Bhiwandi', type: 'sorting', capacityTonnes: 140, currentTonnes: 99, utilizationPct: 71, status: 'healthy', processingRate: '140 t/hr', lat: 19.2800, lng: 73.0500, description: 'Northern outskirts bulk material facility' },
+  { id: 'sort-mahim', name: 'Sorting Facility A — Mahim', type: 'sorting', capacityTonnes: 120, currentTonnes: 106, utilizationPct: 88, status: 'healthy', processingRate: '120 t/hr', lat: 19.0350, lng: 72.8400, description: 'Semi-automated optical sorting facility', recoveryPct: 70 },
+  { id: 'sort-kanjur', name: 'Sorting Facility B — Kanjurmarg', type: 'sorting', capacityTonnes: 160, currentTonnes: 151, utilizationPct: 94, status: 'critical', queueTonnes: 182, processingRate: '160 t/hr', overflowEstHours: '5h 42m', co2ImpactTons: 42, lat: 19.1300, lng: 72.9300, description: 'High-throughput MRF — Bottleneck focal point', recoveryPct: 65 },
+  { id: 'sort-taloja', name: 'Sorting Facility C — Taloja', type: 'sorting', capacityTonnes: 220, currentTonnes: 140, utilizationPct: 64, status: 'healthy', processingRate: '220 t/hr', lat: 19.0600, lng: 73.1000, description: 'State-of-the-art regional processing plant with 22% spare capacity', recoveryPct: 75 },
+  { id: 'sort-bhiwandi', name: 'Sorting Facility D — Bhiwandi', type: 'sorting', capacityTonnes: 140, currentTonnes: 99, utilizationPct: 71, status: 'healthy', processingRate: '140 t/hr', lat: 19.2800, lng: 73.0500, description: 'Northern outskirts bulk material facility', recoveryPct: 60 },
 
   // Processing & Recycling
-  { id: 'proc-biogas', name: 'Bio-Methanation Plant 1', type: 'processing', capacityTonnes: 500, currentTonnes: 450, utilizationPct: 90, status: 'healthy', lat: 19.0800, lng: 72.9100, description: 'Produces compressed biogas & organic fertilizer' },
-  { id: 'proc-pyrolysis', name: 'Plastic Pyrolysis Hub', type: 'processing', capacityTonnes: 350, currentTonnes: 320, utilizationPct: 91, status: 'healthy', lat: 19.1000, lng: 72.9500, description: 'Converts non-recyclable polymers to synthetic fuel' },
-  { id: 'proc-mrf', name: 'Material Recovery Hub (MRF)', type: 'processing', capacityTonnes: 700, currentTonnes: 680, utilizationPct: 97, status: 'warning', lat: 19.1600, lng: 72.9800, description: 'High-value paper, metal & glass recovery unit' },
+  { id: 'proc-biogas', name: 'Bio-Methanation Plant 1', type: 'processing', capacityTonnes: 500, currentTonnes: 450, utilizationPct: 90, status: 'healthy', lat: 19.0800, lng: 72.9100, description: 'Produces compressed biogas & organic fertilizer', recoveryPct: 80 },
+  { id: 'proc-pyrolysis', name: 'Plastic Pyrolysis Hub', type: 'processing', capacityTonnes: 350, currentTonnes: 320, utilizationPct: 91, status: 'healthy', lat: 19.1000, lng: 72.9500, description: 'Converts non-recyclable polymers to synthetic fuel', recoveryPct: 75 },
+  { id: 'proc-mrf', name: 'Material Recovery Hub (MRF)', type: 'processing', capacityTonnes: 700, currentTonnes: 680, utilizationPct: 97, status: 'warning', lat: 19.1600, lng: 72.9800, description: 'High-value paper, metal & glass recovery unit', recoveryPct: 85 },
 
   // Landfills
-  { id: 'landfill-deonar', name: 'Deonar Landfill Site', type: 'landfill', capacityTonnes: 2400000, currentTonnes: 1982000, utilizationPct: 83, status: 'warning', overflowEstHours: '143 Days', lat: 19.0600, lng: 72.9200, description: 'Legacy dumping ground — Urgent diversion target' },
-  { id: 'landfill-kanjur', name: 'Kanjurmarg Regional Landfill', type: 'landfill', capacityTonnes: 4100000, currentTonnes: 2900000, utilizationPct: 71, status: 'healthy', overflowEstHours: '420 Days', lat: 19.1400, lng: 72.9400, description: 'Engineered sanitary landfill with leachate treatment' }
+  { id: 'landfill-deonar', name: 'Deonar Landfill Site', type: 'landfill', capacityTonnes: 2400000, currentTonnes: 1982000, utilizationPct: 83, status: 'warning', overflowEstHours: '143 Days', lat: 19.0600, lng: 72.9200, description: 'Legacy dumping ground — Urgent diversion target', totalLandfillCapacityTonnes: 2400000, currentFilledVolumeTonnes: 1982000 },
+  { id: 'landfill-kanjur', name: 'Kanjurmarg Regional Landfill', type: 'landfill', capacityTonnes: 4100000, currentTonnes: 2900000, utilizationPct: 71, status: 'healthy', overflowEstHours: '420 Days', lat: 19.1400, lng: 72.9400, description: 'Engineered sanitary landfill with leachate treatment', totalLandfillCapacityTonnes: 4100000, currentFilledVolumeTonnes: 2900000 }
 ];
 
 export const INITIAL_EDGES: WasteEdge[] = [

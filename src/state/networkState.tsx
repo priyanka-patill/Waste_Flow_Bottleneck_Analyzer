@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useMemo, useEffect, useCallback } from 'react';
-import type { NetworkState, NetworkLevers, WasteFlowAnalysisResult, NetworkEdge } from '../types/wasteNetwork';
+import type { NetworkState, NetworkLevers, WasteFlowAnalysisResult, NetworkNode, NetworkEdge, VehicleConfig } from '../types/wasteNetwork';
 import type { DataServiceStatus } from '../types/api';
 import { INITIAL_NODES, INITIAL_EDGES } from '../data/wasteData';
 import { runCompleteAnalysis } from '../engine/simulation';
@@ -9,6 +9,8 @@ import { fetchWasteVehicleData } from '../services/data/wasteDataService';
 import { getRoute, getRoutingStatus } from '../services/data/routingService';
 import { getTrafficStatus } from '../services/api/trafficProvider';
 import { fetchFromBackend } from '../services/apiClient';
+
+const STORAGE_KEY = 'waste_flow_network_config_v2';
 
 interface NetworkContextType {
   networkState: NetworkState;
@@ -20,6 +22,20 @@ interface NetworkContextType {
   applyIntervention: (rank: number) => void;
   runChaosSimulation: (disruptionName: string) => void;
   refreshApiData: () => Promise<void>;
+
+  // Requirement 1 Process & Fleet Configuration API
+  updateNode: (nodeId: string, updatedFields: Partial<NetworkNode>) => void;
+  addNode: (node: NetworkNode) => void;
+  deleteNode: (nodeId: string) => void;
+  duplicateNode: (nodeId: string) => void;
+
+  updateEdge: (edgeId: string, updatedFields: Partial<NetworkEdge>) => void;
+  addEdge: (edge: NetworkEdge) => void;
+  deleteEdge: (edgeId: string) => void;
+
+  updateVehicleConfig: (updatedConfig: Partial<VehicleConfig>) => void;
+  applyConfiguration: (newNodes?: NetworkNode[], newEdges?: NetworkEdge[], newVehicleConfig?: VehicleConfig) => void;
+  resetToDefault: () => void;
 }
 
 const defaultLevers: NetworkLevers = {
@@ -30,14 +46,21 @@ const defaultLevers: NetworkLevers = {
   routeStrategy: 'Dynamic Freeway Rerouting'
 };
 
-const initialNetworkState: NetworkState = {
+const buildDefaultNetworkState = (): NetworkState => ({
   nodes: INITIAL_NODES.map(n => ({
     ...n,
     queueTonnes: n.queueTonnes || 0,
     processingRateTonnesPerHour: parseFloat(n.processingRate?.split(' ')[0] || '160'),
     operatingHours: 16,
     costPerTon: 120,
-    co2FactorTonPerTon: 0.35
+    co2FactorTonPerTon: 0.35,
+    collectionFrequency: n.collectionFrequency || 'once_daily',
+    vehiclesAssigned: n.vehiclesAssigned || (n.type === 'collection' ? 20 : undefined),
+    vehicleCapacityAssignedTonnes: n.vehicleCapacityAssignedTonnes || (n.type === 'collection' ? 12 : undefined),
+    recoveryPct: n.recoveryPct || (n.type === 'processing' ? 75 : n.type === 'sorting' ? 65 : undefined),
+    processingTimeMins: n.type === 'sorting' ? 45 : n.type === 'processing' ? 60 : 30,
+    totalLandfillCapacityTonnes: n.totalLandfillCapacityTonnes || (n.type === 'landfill' ? n.capacityTonnes : undefined),
+    currentFilledVolumeTonnes: n.currentFilledVolumeTonnes || (n.type === 'landfill' ? n.currentTonnes : undefined)
   })),
   edges: INITIAL_EDGES.map(e => ({
     ...e,
@@ -53,11 +76,12 @@ const initialNetworkState: NetworkState = {
     vehicleCapacityTonnes: 12,
     fuelEfficiencyKmPerLiter: 3.2,
     operatingHours: 14,
-    co2EmissionFactorKgPerLiter: 2.68
+    co2EmissionFactorKgPerLiter: 2.68,
+    avgSpeedKmPerHour: 28
   },
   levers: defaultLevers,
   activeScenarioId: undefined
-};
+});
 
 const defaultDataStatus: DataServiceStatus = {
   weather: { status: 'simulated', provider: 'Open-Meteo' },
@@ -70,37 +94,59 @@ const defaultDataStatus: DataServiceStatus = {
 const NetworkContext = createContext<NetworkContextType | undefined>(undefined);
 
 export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [networkState, setNetworkState] = useState<NetworkState>(initialNetworkState);
+  const [networkState, setNetworkState] = useState<NetworkState>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && Array.isArray(parsed.nodes) && Array.isArray(parsed.edges) && parsed.vehicleConfig) {
+          return {
+            ...buildDefaultNetworkState(),
+            ...parsed
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load saved configuration from localStorage:', err);
+    }
+    return buildDefaultNetworkState();
+  });
+
   const [dataServiceStatus, setDataServiceStatus] = useState<DataServiceStatus>(defaultDataStatus);
+
+  // Save changes to localStorage
+  const persistState = useCallback((stateToSave: NetworkState) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        nodes: stateToSave.nodes,
+        edges: stateToSave.edges,
+        vehicleConfig: stateToSave.vehicleConfig,
+        levers: stateToSave.levers
+      }));
+    } catch (e) {
+      console.warn('LocalStorage save error:', e);
+    }
+  }, []);
 
   // Hydrate external API data & optional FastAPI backend synchronization
   const refreshApiData = useCallback(async () => {
     try {
-      // 0. Check optional FastAPI backend status
       const backendRes = await fetchFromBackend<{ dataSources?: Record<string, string> }>('/api/dashboard/summary').catch(() => null);
       if (backendRes?.isBackendLive) {
         console.log('FastAPI Backend synchronized live at http://localhost:8000/api');
       }
 
-      // 1. Fetch Weather from Open-Meteo safely
       const weatherRes = await getWeather().catch(() => null);
       const weatherImpact = weatherRes ? getWeatherImpactMultipliers(weatherRes.weather) : undefined;
-
-      // 2. Fetch Air Quality from OpenAQ safely
       const aqRes = await getAirQuality().catch(() => null);
-
-      // 3. Fetch Government Waste Data from data.gov.in safely
       const wasteGovRes = await fetchWasteVehicleData().catch(() => null);
+      const trafficRes = getTrafficStatus({ scenarioId: networkState.activeScenarioId });
 
-      // 4. Fetch Traffic Status
-      const trafficRes = getTrafficStatus({ scenarioId: initialNetworkState.activeScenarioId });
-
-      // 5. Optionally fetch OSRM Route geometry for edges safely with timeout/fallback
       const updatedEdges = await Promise.all(
-        initialNetworkState.edges.map(async (edge): Promise<NetworkEdge> => {
+        networkState.edges.map(async (edge): Promise<NetworkEdge> => {
           try {
-            const srcNode = initialNetworkState.nodes.find(n => n.id === edge.from);
-            const destNode = initialNetworkState.nodes.find(n => n.id === edge.to);
+            const srcNode = networkState.nodes.find(n => n.id === edge.from);
+            const destNode = networkState.nodes.find(n => n.id === edge.to);
             if (srcNode && destNode) {
               const route = await getRoute(
                 { id: srcNode.id, lat: srcNode.lat, lng: srcNode.lng },
@@ -126,12 +172,7 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
         weather: weatherRes?.weather || prev.weather,
         weatherImpact: weatherImpact || prev.weatherImpact,
         airQuality: aqRes?.airQuality || prev.airQuality,
-        trafficStatus: trafficRes || prev.trafficStatus,
-        vehicleConfig: {
-          ...prev.vehicleConfig,
-          vehicleCount: wasteGovRes?.vehicleCount || prev.vehicleConfig.vehicleCount,
-          vehicleCapacityTonnes: wasteGovRes?.vehicleCapacity || prev.vehicleConfig.vehicleCapacityTonnes
-        }
+        trafficStatus: trafficRes || prev.trafficStatus
       }));
 
       if (weatherRes || aqRes || wasteGovRes) {
@@ -155,10 +196,9 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch (err) {
       console.warn('API hydration warning (fallback in use):', err);
     }
-  }, []);
+  }, [networkState.activeScenarioId, networkState.nodes, networkState.edges]);
 
   useEffect(() => {
-    // Run background API refresh once safely without blocking initial render
     refreshApiData();
     const interval = setInterval(refreshApiData, 15 * 60 * 1000);
     return () => clearInterval(interval);
@@ -168,6 +208,115 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const analysis = useMemo(() => {
     return runCompleteAnalysis(networkState);
   }, [networkState]);
+
+  // Network CRUD & Levers Functions
+  const updateNode = (nodeId: string, updatedFields: Partial<NetworkNode>) => {
+    setNetworkState(prev => {
+      const nextNodes = prev.nodes.map(n => n.id === nodeId ? { ...n, ...updatedFields } : n);
+      const nextState = { ...prev, nodes: nextNodes };
+      persistState(nextState);
+      return nextState;
+    });
+  };
+
+  const addNode = (newNode: NetworkNode) => {
+    setNetworkState(prev => {
+      const nextNodes = [...prev.nodes, newNode];
+      const nextState = { ...prev, nodes: nextNodes };
+      persistState(nextState);
+      return nextState;
+    });
+  };
+
+  const deleteNode = (nodeId: string) => {
+    setNetworkState(prev => {
+      const nextNodes = prev.nodes.filter(n => n.id !== nodeId);
+      const nextEdges = prev.edges.filter(e => e.from !== nodeId && e.to !== nodeId);
+      const nextState = { ...prev, nodes: nextNodes, edges: nextEdges };
+      persistState(nextState);
+      return nextState;
+    });
+  };
+
+  const duplicateNode = (nodeId: string) => {
+    setNetworkState(prev => {
+      const targetNode = prev.nodes.find(n => n.id === nodeId);
+      if (!targetNode) return prev;
+
+      const newId = `${targetNode.type}-${Date.now().toString(36)}`;
+      const duplicated: NetworkNode = {
+        ...targetNode,
+        id: newId,
+        name: `${targetNode.name} (Copy)`,
+        lat: targetNode.lat + 0.015,
+        lng: targetNode.lng + 0.015
+      };
+
+      const nextNodes = [...prev.nodes, duplicated];
+      const nextState = { ...prev, nodes: nextNodes };
+      persistState(nextState);
+      return nextState;
+    });
+  };
+
+  const updateEdge = (edgeId: string, updatedFields: Partial<NetworkEdge>) => {
+    setNetworkState(prev => {
+      const nextEdges = prev.edges.map(e => e.id === edgeId ? { ...e, ...updatedFields } : e);
+      const nextState = { ...prev, edges: nextEdges };
+      persistState(nextState);
+      return nextState;
+    });
+  };
+
+  const addEdge = (newEdge: NetworkEdge) => {
+    setNetworkState(prev => {
+      const nextEdges = [...prev.edges, newEdge];
+      const nextState = { ...prev, edges: nextEdges };
+      persistState(nextState);
+      return nextState;
+    });
+  };
+
+  const deleteEdge = (edgeId: string) => {
+    setNetworkState(prev => {
+      const nextEdges = prev.edges.filter(e => e.id !== edgeId);
+      const nextState = { ...prev, edges: nextEdges };
+      persistState(nextState);
+      return nextState;
+    });
+  };
+
+  const updateVehicleConfig = (updatedConfig: Partial<VehicleConfig>) => {
+    setNetworkState(prev => {
+      const nextConfig = { ...prev.vehicleConfig, ...updatedConfig };
+      const nextState = { ...prev, vehicleConfig: nextConfig };
+      persistState(nextState);
+      return nextState;
+    });
+  };
+
+  const applyConfiguration = (newNodes?: NetworkNode[], newEdges?: NetworkEdge[], newVehicleConfig?: VehicleConfig) => {
+    setNetworkState(prev => {
+      const nextState = {
+        ...prev,
+        nodes: newNodes || prev.nodes,
+        edges: newEdges || prev.edges,
+        vehicleConfig: newVehicleConfig || prev.vehicleConfig
+      };
+      persistState(nextState);
+      return nextState;
+    });
+  };
+
+  const resetToDefault = () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (e) {
+      console.warn('LocalStorage remove error:', e);
+    }
+    const fresh = buildDefaultNetworkState();
+    setNetworkState(fresh);
+  };
 
   const updateLever = <K extends keyof NetworkLevers>(key: K, value: NetworkLevers[K]) => {
     setNetworkState(prev => ({
@@ -229,7 +378,17 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
         selectScenario,
         applyIntervention,
         runChaosSimulation,
-        refreshApiData
+        refreshApiData,
+        updateNode,
+        addNode,
+        deleteNode,
+        duplicateNode,
+        updateEdge,
+        addEdge,
+        deleteEdge,
+        updateVehicleConfig,
+        applyConfiguration,
+        resetToDefault
       }}
     >
       {children}
