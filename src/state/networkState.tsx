@@ -8,6 +8,7 @@ import { getAirQuality } from '../services/data/airQualityService';
 import { fetchWasteVehicleData } from '../services/data/wasteDataService';
 import { getRoute, getRoutingStatus } from '../services/data/routingService';
 import { getTrafficStatus } from '../services/api/trafficProvider';
+import { fetchFromBackend } from '../services/apiClient';
 
 interface NetworkContextType {
   networkState: NetworkState;
@@ -72,9 +73,15 @@ export const NetworkProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [networkState, setNetworkState] = useState<NetworkState>(initialNetworkState);
   const [dataServiceStatus, setDataServiceStatus] = useState<DataServiceStatus>(defaultDataStatus);
 
-  // Hydrate external API data (Weather, Routing, Govt Waste Data, Air Quality, Traffic)
+  // Hydrate external API data & optional FastAPI backend synchronization
   const refreshApiData = useCallback(async () => {
     try {
+      // 0. Check optional FastAPI backend status
+      const backendRes = await fetchFromBackend<{ dataSources?: Record<string, string> }>('/api/dashboard/summary').catch(() => null);
+      if (backendRes?.isBackendLive) {
+        console.log('FastAPI Backend synchronized live at http://localhost:8000/api');
+      }
+
       // 1. Fetch Weather from Open-Meteo safely
       const weatherRes = await getWeather().catch(() => null);
       const weatherImpact = weatherRes ? getWeatherImpactMultipliers(weatherRes.weather) : undefined;
