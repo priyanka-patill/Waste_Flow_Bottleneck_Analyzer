@@ -27,17 +27,27 @@ export function runCompleteAnalysis(state: NetworkState): WasteFlowAnalysisResul
     let nodeCap = n.capacityTonnes;
     let nodeHrs = n.operatingHours || 16;
     let currTonnes = n.currentTonnes;
+    let recPct = n.recoveryPct;
 
     // Apply Weather collection delay & backlog boost to collection nodes
     if (n.type === 'collection') {
       currTonnes = Math.round(currTonnes * collectionDelayMult);
     }
 
-    // Apply What-If Sorting Capacity Shift
-    if (n.type === 'sorting' && levers.sortingCapDelta !== 0) {
-      if (n.id === 'sort-kanjur') {
+    // Apply What-If Sorting Capacity Shift to sorting nodes
+    if (n.type === 'sorting' && levers.sortingCapDelta !== undefined && levers.sortingCapDelta !== 0) {
+      if (n.id === 'sort-kanjur' || nodes.filter(nod => nod.type === 'sorting').length === 1) {
         nodeCap = Math.max(50, n.capacityTonnes + levers.sortingCapDelta);
+      } else {
+        // Distribute delta across sorting nodes
+        const sortingCount = nodes.filter(nod => nod.type === 'sorting').length;
+        nodeCap = Math.max(50, Math.round(n.capacityTonnes + levers.sortingCapDelta / sortingCount));
       }
+    }
+
+    // Apply Target Recovery Rate Lever (clamped between 0 and 100%)
+    if ((n.type === 'sorting' || n.type === 'processing') && levers.targetRecoveryPct !== undefined) {
+      recPct = Math.min(100, Math.max(0, levers.targetRecoveryPct));
     }
 
     // Apply Operating Hours Lever
@@ -62,13 +72,14 @@ export function runCompleteAnalysis(state: NetworkState): WasteFlowAnalysisResul
       ...n,
       capacityTonnes: nodeCap,
       operatingHours: nodeHrs,
-      currentTonnes: currTonnes
+      currentTonnes: currTonnes,
+      recoveryPct: recPct
     };
   });
 
   let modifiedVehicleConfig = { ...vehicleConfig };
-  if (levers.vehiclesDelta !== 0) {
-    modifiedVehicleConfig.vehicleCount = Math.max(50, vehicleConfig.vehicleCount + levers.vehiclesDelta);
+  if (levers.vehiclesDelta !== undefined && levers.vehiclesDelta !== 0) {
+    modifiedVehicleConfig.vehicleCount = Math.max(10, vehicleConfig.vehicleCount + levers.vehiclesDelta);
   }
   if (vehicleCapReduction > 0) {
     modifiedVehicleConfig.vehicleCapacityTonnes = Math.round(
@@ -79,11 +90,23 @@ export function runCompleteAnalysis(state: NetworkState): WasteFlowAnalysisResul
   let modifiedEdges: NetworkEdge[] = edges.map(e => {
     let delay = Math.round(e.delayMins * rainMultiplier * trafficMult);
     let travelTimeMinutes = Math.round(e.travelTimeMinutes * rainMultiplier * trafficMult);
+    let distKm = e.distanceKm;
     let status = e.status;
 
-    if (levers.routeStrategy === 'Dynamic Freeway Rerouting' && e.id === 'e5') {
-      delay = Math.max(5, Math.round(delay * 0.4));
-      status = 'normal';
+    // Support all routing strategy dropdown choices
+    const strat = levers.routeStrategy || '';
+    if (strat.includes('Freeway') || strat.includes('Dynamic')) {
+      if (e.id === 'e5' || e.from.includes('ts') || e.to.includes('sort')) {
+        delay = Math.max(3, Math.round(delay * 0.5));
+        travelTimeMinutes = Math.max(10, Math.round(travelTimeMinutes * 0.75));
+        status = 'normal';
+      }
+    } else if (strat.includes('Staggered') || strat.includes('Shift')) {
+      delay = Math.max(2, Math.round(delay * 0.6));
+      travelTimeMinutes = Math.max(8, Math.round(travelTimeMinutes * 0.8));
+    } else if (strat.includes('Express') || strat.includes('Direct')) {
+      distKm = Math.max(3, Math.round(distKm * 0.85));
+      travelTimeMinutes = Math.max(5, Math.round(travelTimeMinutes * 0.7));
     }
 
     if ((activeScenarioId === 'monsoon' || activeScenarioId === 'heavy-rain') && (e.id === 'e5' || e.id === 'e10')) {
@@ -94,6 +117,7 @@ export function runCompleteAnalysis(state: NetworkState): WasteFlowAnalysisResul
 
     return {
       ...e,
+      distanceKm: distKm,
       delayMins: delay,
       travelTimeMinutes,
       status
