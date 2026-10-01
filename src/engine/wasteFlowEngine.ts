@@ -83,7 +83,6 @@ export function calculateWasteFlow(
 
   // Constrain collection outflow by active fleet transport capacity
   const transportConstraintRatio = Math.min(1.0, maxFleetTransportCapacityTonnes / Math.max(1, totalCollected));
-  const transportBacklogTonnes = Math.max(0, totalCollected - maxFleetTransportCapacityTonnes);
 
   // Apply transport constraint ratio to collection node outflows
   if (transportConstraintRatio < 1.0) {
@@ -205,18 +204,19 @@ export function calculateWasteFlow(
   const recoveryRatePct = Math.min(100, Math.max(0, rawRecoveryRatePct));
   const landfillDependencyPct = Math.min(100, Math.max(0, Number(((totalLandfill / Math.max(1, totalCollected)) * 100).toFixed(1))));
 
-  // Vehicle Logistics Calculation
-  const actualTransportedTonnes = Math.min(totalCollected, maxFleetTransportCapacityTonnes);
-  const baseTripsRequired = Math.ceil(actualTransportedTonnes / vehicleCap);
-  const totalTrips = Math.ceil(baseTripsRequired * avgCollectionTripMult);
-  
-  // Total transport distance
+  // Multi-Leg Vehicle Logistics & Truck Trips Calculation
+  let sumSystemEdgeTrips = 0;
   let totalDistanceKm = 0;
   edges.forEach(e => {
     const flow = edgeFlows[e.id]?.flow || e.tonnesPerDay;
     const edgeTrips = Math.ceil(flow / vehicleCap) * avgCollectionTripMult;
+    sumSystemEdgeTrips += edgeTrips;
     totalDistanceKm += edgeTrips * (e.distanceKm || 15);
   });
+
+  // Fleet dispatch ratio scaling total trips based on active fleet count relative to baseline (182 trucks)
+  const fleetDispatchRatio = totalFleetCount / 182;
+  const totalTrips = Math.max(10, Math.round((sumSystemEdgeTrips / 2.0) * fleetDispatchRatio));
 
   // Fuel & Emissions: fleet strain adds fuel multiplier if fleet capacity is tight
   const fleetStrainMultiplier = transportConstraintRatio < 1.0 ? (1 + (1 - transportConstraintRatio) * 0.4) : 1.0;
